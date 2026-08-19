@@ -66,13 +66,20 @@ button.primary{
 button.primary:active{transform:scale(.98);}
 .legend{display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim); margin-bottom:8px; padding:0 2px; font-family:var(--font-display);}
 .legend .b{color:var(--blue);} .legend .r{color:var(--red);}
-.board{display:grid; grid-template-columns:repeat(8,1fr); gap:2px; aspect-ratio:1/1; width:100%;
+.board{display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr); gap:2px; aspect-ratio:1/1; width:100%;
   border-radius:10px; overflow:hidden; border:2px solid var(--line); touch-action:manipulation;}
 .cell{position:relative; display:flex; align-items:center; justify-content:center; background:var(--board-a); user-select:none;}
 .cell.alt{background:var(--board-b);}
 .cell.selectable{cursor:pointer;}
-.cell.selectable::after{content:''; position:absolute; inset:8%; border-radius:8px; background:var(--gold); opacity:.22; animation:pulse 1.3s ease-in-out infinite;}
-@keyframes pulse{0%,100%{opacity:.15;}50%{opacity:.42;}}
+.preview-die{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:clamp(14px,3.6vw,22px); color:var(--red); pointer-events:none;
+  animation:previewPulse 1.5s ease-in-out infinite;
+}
+@keyframes previewPulse{
+  0%,100%{ filter:blur(0px); opacity:.9; transform:scale(1); }
+  50%{ filter:blur(3px); opacity:.28; transform:scale(.92); }
+}
 .piece{width:76%; height:76%; border-radius:10px; display:flex; align-items:center; justify-content:center;
   font-size:clamp(15px,4vw,24px); position:relative; box-shadow:inset 0 0 0 1px rgba(255,255,255,.12), 0 3px 6px rgba(0,0,0,.4);
   transition:transform .15s ease;}
@@ -120,12 +127,16 @@ button.primary:active{transform:scale(.98);}
     <div id="page1">
       <div class="field">
         <label for="nameInput">이름</label>
-        <input type="text" id="nameInput" placeholder="홍길동" autocomplete="name">
+        <input type="text" id="nameInput" placeholder="신윤섭" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="studentIdInput">학번</label>
+        <input type="text" id="studentIdInput" placeholder="20260123" inputmode="numeric" maxlength="8" autocomplete="off">
       </div>
       <div class="field">
         <label for="idInput">POVIS ID</label>
-        <input type="text" id="idInput" placeholder="20260123" autocomplete="off">
-        <div class="error" id="page1Error">이름과 POVIS ID를 모두 입력해 주세요.</div>
+        <input type="text" id="idInput" placeholder="shinyunseob" autocomplete="off">
+        <div class="error" id="page1Error">이름, POVIS ID를 모두 입력하고 학번은 숫자 8자리로 적어 주세요.</div>
       </div>
       <button class="primary" id="toStep2">국지전으로 이동</button>
     </div>
@@ -159,6 +170,7 @@ button.primary:active{transform:scale(.98);}
       </div>
       <div class="summary">
         <div><span>이름</span><span id="sumName">-</span></div>
+        <div><span>학번</span><span id="sumStudentId">-</span></div>
         <div><span>POVIS ID</span><span id="sumId">-</span></div>
         <div><span>대결 결과</span><span id="sumOutcome">-</span></div>
       </div>
@@ -182,8 +194,8 @@ const DIRS = [
   {k:'W', dr:0, dc:-1},
 ];
 
-let name = '', povisId = '';
-let kaist = { row:4, col:5, top:'가위' };
+let name = '', povisId = '', studentId = '';
+let kaist = { row:4, col:5, top:'가위', vert:'보', horiz:'바위' };
 let postech = { row:2, col:2, top:'바위', horiz:'가위', vert:'보' };
 let totalSteps = STEPS[postech.top];
 let remaining = totalSteps;
@@ -192,6 +204,23 @@ let moveHistory = [];
 let locked = false;
 let finalScore = 0;
 let outcomeText = '';
+
+let boardBuilt = false;
+let cellEls = [];
+let postechEl = null, kaistEl = null;
+
+function createDiePiece(color){
+  const wrap = document.createElement('div');
+  wrap.className = 'piece ' + color;
+  return wrap;
+}
+
+function buildPieces(){
+  postechEl = createDiePiece('red');
+  postechEl.textContent = FACE_EMOJI[postech.top];
+  kaistEl = createDiePiece('blue');
+  kaistEl.textContent = FACE_EMOJI[kaist.top];
+}
 
 function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
 function isKaistCell(r,c){ return kaist.row===r && kaist.col===c; }
@@ -225,7 +254,8 @@ function doStep(dir, nr, nc){
     row: postech.row, col: postech.col,
     top: postech.top, horiz: postech.horiz, vert: postech.vert,
     remaining: remaining,
-    prevPos: prevPos ? { row:prevPos.row, col:prevPos.col } : null
+    prevPos: prevPos ? { row:prevPos.row, col:prevPos.col } : null,
+    dir: dir
   });
   prevPos = { row:postech.row, col:postech.col };
   postech.row = nr; postech.col = nc;
@@ -272,14 +302,12 @@ function finishMove(){
   let win = false, tie = false;
   if(a === d) tie = true;
   else if(BEATS[a] === d) win = true;
-  const pieceEl = document.querySelector('.piece.red');
   if(win){
     finalScore = 100;
     outcomeText = `${FACE_EMOJI[a]}${a} 승리 (vs ${FACE_EMOJI[d]}${d})`;
     document.getElementById('ruleHint').innerHTML = `가위바위보 대결! ${FACE_EMOJI[a]}${a} vs ${FACE_EMOJI[d]}${d} — <b>포스텍 승리! 카이스트 격파!</b> 100점을 획득했습니다.`;
-    const kaistEl = document.querySelector('.piece.blue');
     if(kaistEl) kaistEl.classList.add('shatter');
-    if(pieceEl) pieceEl.classList.add('pop');
+    if(postechEl) postechEl.classList.add('pop');
   } else if(tie){
     finalScore = 10;
     outcomeText = `${FACE_EMOJI[a]}${a} 무승부 (vs ${FACE_EMOJI[d]}${d})`;
@@ -292,53 +320,79 @@ function finishMove(){
   setTimeout(goToResult, win ? 1300 : 1100);
 }
 
-function renderBoard(){
+function buildBoardGrid(){
   const board = document.getElementById('board');
   board.innerHTML = '';
-  let targets = [];
-  if(!locked) targets = validNextSteps();
+  cellEls = [];
   for(let r=0;r<SIZE;r++){
+    const rowArr = [];
     for(let c=0;c<SIZE;c++){
       const cell = document.createElement('div');
       cell.className = 'cell' + ((r+c)%2===1 ? ' alt' : '');
-      const match = targets.find(t=>t.row===r && t.col===c);
+      board.appendChild(cell);
+      rowArr.push(cell);
+    }
+    cellEls.push(rowArr);
+  }
+  boardBuilt = true;
+  buildPieces();
+  cellEls[kaist.row][kaist.col].appendChild(kaistEl);
+  cellEls[postech.row][postech.col].appendChild(postechEl);
+}
+
+function renderBoard(){
+  if(!boardBuilt) buildBoardGrid();
+
+  let targets = [];
+  if(!locked) targets = validNextSteps();
+
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      const cell = cellEls[r][c];
+      cell.querySelectorAll('.preview-die').forEach(function(n){ n.remove(); });
+      const match = targets.find(function(t){ return t.row===r && t.col===c; });
       if(match){
         cell.classList.add('selectable');
-        cell.addEventListener('click', ()=> doStep(match.dir, match.row, match.col));
+        cell.onclick = function(){ doStep(match.dir, match.row, match.col); };
+        const previewFace = (match.dir==='N' || match.dir==='S') ? postech.vert : postech.horiz;
+        const pv = document.createElement('div');
+        pv.className = 'preview-die';
+        pv.textContent = FACE_EMOJI[previewFace];
+        cell.appendChild(pv);
+      } else {
+        cell.classList.remove('selectable');
+        cell.onclick = null;
       }
-      if(isKaistCell(r,c)){
-        const pd = document.createElement('div');
-        pd.className = 'piece blue';
-        pd.textContent = FACE_EMOJI[kaist.top];
-        cell.appendChild(pd);
-      }
-      if(postech.row===r && postech.col===c){
-        const pd = document.createElement('div');
-        pd.className = 'piece red';
-        pd.textContent = FACE_EMOJI[postech.top];
-        cell.appendChild(pd);
-      }
-      board.appendChild(cell);
     }
   }
+
+  postechEl.textContent = FACE_EMOJI[postech.top];
+  cellEls[postech.row][postech.col].appendChild(postechEl);
+
   document.getElementById('stepsLeft').textContent = remaining;
   document.getElementById('topFace').textContent = FACE_EMOJI[postech.top] + ' ' + postech.top;
   document.getElementById('undoBtn').disabled = locked || moveHistory.length === 0;
 }
-
 document.getElementById('undoBtn').addEventListener('click', undoLastStep);
 
 function setDot(n, cls){
   document.getElementById('dot'+n).className = 'step-dot' + (cls ? ' '+cls : '');
 }
 
+document.getElementById('studentIdInput').addEventListener('input', function(e){
+  e.target.value = e.target.value.replace(/\D/g, '').slice(0,8);
+});
+
 document.getElementById('toStep2').addEventListener('click', function(){
   const nameEl = document.getElementById('nameInput');
   const idEl = document.getElementById('idInput');
+  const studentIdEl = document.getElementById('studentIdInput');
   const err = document.getElementById('page1Error');
   name = nameEl.value.trim();
   povisId = idEl.value.trim();
-  if(!name || !povisId){
+  studentId = studentIdEl.value.trim();
+  const studentIdValid = /^\d{8}$/.test(studentId);
+  if(!name || !povisId || !studentIdValid){
     err.classList.add('show');
     return;
   }
@@ -353,6 +407,7 @@ const GOOGLE_FORM_ID = '1FAIpQLScXQPZjJbcZ2cx_IAqWZJiu-LEo5vcNgdr2w_T_lHXvrwCfCA
 const GOOGLE_FORM_ENTRY = {
   name: 'entry.866975153',
   povisId: 'entry.1745020199',
+  studentId: 'entry.69369127',
   score: 'entry.1381748492'
 };
 
@@ -380,6 +435,7 @@ function submitToGoogleForm(record){
       const params = new URLSearchParams();
       params.append(GOOGLE_FORM_ENTRY.name, record.name);
       params.append(GOOGLE_FORM_ENTRY.povisId, record.povisId);
+      params.append(GOOGLE_FORM_ENTRY.studentId, record.studentId);
       params.append(GOOGLE_FORM_ENTRY.score, String(record.score));
       fetch(url, { method:'POST', mode:'no-cors', body: params })
         .then(function(){ resolve(true); })
@@ -396,6 +452,7 @@ async function saveRecord(){
   const record = {
     name: name,
     povisId: povisId,
+    studentId: studentId,
     score: finalScore,
     outcome: outcomeText,
     timestamp: new Date().toISOString()
@@ -434,6 +491,7 @@ function goToResult(){
     : '이번 판에서는 격파에 실패했지만, 참가해 주셔서 10점을 드립니다.';
   document.getElementById('sumName').textContent = name;
   document.getElementById('sumId').textContent = povisId;
+  document.getElementById('sumStudentId').textContent = studentId;
   document.getElementById('sumOutcome').textContent = outcomeText;
   saveRecord();
 }
